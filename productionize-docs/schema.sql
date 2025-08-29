@@ -199,6 +199,19 @@ CREATE INDEX idx_classes_choreographer ON classes(choreographer_id) WHERE delete
 CREATE INDEX idx_classes_style_borough ON classes(style, borough) WHERE deleted_at IS NULL;
 CREATE INDEX idx_classes_active ON classes(id) WHERE deleted_at IS NULL;
 
+-- Composite indexes for advanced search and filtering
+CREATE INDEX idx_classes_style_borough_timestamp ON classes(style, borough, class_timestamp) WHERE deleted_at IS NULL;
+CREATE INDEX idx_classes_location_style ON classes(location_name, style) WHERE deleted_at IS NULL;
+CREATE INDEX idx_classes_choreographer_timestamp ON classes(choreographer_id, class_timestamp) WHERE deleted_at IS NULL;
+
+-- Full-text search indexes for text search functionality
+CREATE INDEX idx_classes_title_search ON classes USING gin(to_tsvector('english', title)) WHERE deleted_at IS NULL;
+CREATE INDEX idx_classes_location_search ON classes USING gin(to_tsvector('english', location_name)) WHERE deleted_at IS NULL;
+CREATE INDEX idx_classes_description_search ON classes USING gin(to_tsvector('english', description)) WHERE deleted_at IS NULL;
+
+-- Choreographer profiles search index
+CREATE INDEX idx_choreographer_profiles_name_search ON choreographer_profiles USING gin(to_tsvector('english', display_name)) WHERE deleted_at IS NULL;
+
 -- Social relationship indexes
 CREATE INDEX idx_watchlists_user ON class_watchlists(user_id);
 CREATE INDEX idx_watchlists_class ON class_watchlists(class_id);
@@ -429,6 +442,418 @@ END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
 -- --------------------------------------------------------------------------------
+-- BUSINESS LOGIC FUNCTIONS
+-- --------------------------------------------------------------------------------
+
+-- Function to get classes with watchlist counts ("Heat" calculation) and comprehensive filtering
+CREATE OR REPLACE FUNCTION get_classes_with_watchlist_count(
+    p_limit INTEGER DEFAULT 50,
+    p_cursor_timestamp TIMESTAMPTZ DEFAULT NOW(),
+    p_style TEXT DEFAULT NULL,
+    p_borough TEXT DEFAULT NULL,
+    p_choreographer_id UUID DEFAULT NULL,
+    p_from_date TIMESTAMPTZ DEFAULT NOW(),
+    p_to_date TIMESTAMPTZ DEFAULT NULL,
+    p_sort_by TEXT DEFAULT 'timestamp', -- 'timestamp' | 'heat' | 'created'
+    p_sort_direction TEXT DEFAULT 'ASC' -- 'ASC' | 'DESC'
+)
+RETURNS TABLE (
+    -- Core class fields
+    id UUID,
+    title TEXT,
+    description TEXT,
+    style TEXT,
+    skill_level TEXT,
+    location_name TEXT,
+    borough TEXT,
+    price NUMERIC,
+    booking_url TEXT,
+    class_timestamp TIMESTAMPTZ,
+    choreographer_note TEXT,
+    view_count INTEGER,
+    
+    -- Choreographer info (from active_classes view)
+    choreographer_id UUID,
+    choreographer_display_name TEXT,
+    choreographer_url_slug TEXT,
+    choreographer_subscription_status TEXT,
+    
+    -- The "Heat" calculation - watchlist count
+    watchlist_count BIGINT,
+    
+    -- Timestamps
+    created_at TIMESTAMPTZ,
+    updated_at TIMESTAMPTZ
+) AS $$
+DECLARE
+    v_order_clause TEXT;
+    v_query TEXT;
+BEGIN
+    -- Input validation
+    IF p_limit <= 0 OR p_limit > 100 THEN
+        RAISE EXCEPTION 'Limit must be between 1 and 100, got: %', p_limit;
+    END IF;
+
+    IF p_sort_by NOT IN ('timestamp', 'heat', 'created') THEN
+        RAISE EXCEPTION 'Invalid sort_by value: %. Use: timestamp, heat, created', p_sort_by;
+    END IF;
+
+    IF p_sort_direction NOT IN ('ASC', 'DESC') THEN
+        RAISE EXCEPTION 'Invalid sort_direction value: %. Use: ASC, DESC', p_sort_direction;
+    END IF;
+
+    IF p_to_date IS NOT NULL AND p_from_date > p_to_date THEN
+        RAISE EXCEPTION 'from_date cannot be greater than to_date';
+    END IF;
+
+    -- Build dynamic ORDER BY clause
+    v_order_clause := CASE 
+        WHEN p_sort_by = 'timestamp' THEN 'c.class_timestamp'
+        WHEN p_sort_by = 'heat' THEN 'COALESCE(COUNT(cw.class_id), 0)'
+        WHEN p_sort_by = 'created' THEN 'c.created_at'
+    END || ' ' || p_sort_direction;
+
+    -- Add secondary sort for consistent pagination (especially important for heat sorting)
+    IF p_sort_by != 'timestamp' THEN
+        v_order_clause := v_order_clause || ', c.class_timestamp ASC';
+    END IF;
+
+    -- Execute the main query
+    RETURN QUERY EXECUTE format('
+        SELECT 
+            c.id,
+            c.title,
+            c.description,
+            c.style,
+            c.skill_level,
+            c.location_name,
+            c.borough,
+            c.price,
+            c.booking_url,
+            c.class_timestamp,
+            c.choreographer_note,
+            c.view_count,
+            c.choreographer_id,
+            c.choreographer_display_name,
+            c.choreographer_url_slug,
+            c.subscription_status as choreographer_subscription_status,
+            COALESCE(COUNT(cw.class_id), 0) as watchlist_count,
+            c.created_at,
+            c.updated_at
+        FROM active_classes c
+        LEFT JOIN class_watchlists cw ON c.id = cw.class_id
+        WHERE 
+            -- Date range filtering
+            c.class_timestamp >= $1
+            AND ($2 IS NULL OR c.class_timestamp <= $2)
+            -- Cursor pagination (only for timestamp sorting)
+            AND ($3 != ''timestamp'' OR c.class_timestamp >= $4)
+            -- Optional filters
+            AND ($5 IS NULL OR c.style = $5)
+            AND ($6 IS NULL OR c.borough = $6)
+            AND ($7 IS NULL OR c.choreographer_id = $7)
+        GROUP BY 
+            c.id, c.title, c.description, c.style, c.skill_level,
+            c.location_name, c.borough, c.price, c.booking_url,
+            c.class_timestamp, c.choreographer_note, c.view_count,
+            c.choreographer_id, c.choreographer_display_name, 
+            c.choreographer_url_slug, c.subscription_status,
+            c.created_at, c.updated_at
+        ORDER BY %s
+        LIMIT $8'
+    , v_order_clause)
+    USING p_from_date, p_to_date, p_sort_by, p_cursor_timestamp, 
+          p_style, p_borough, p_choreographer_id, p_limit;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- Function for comprehensive class search and filtering with text search capabilities
+CREATE OR REPLACE FUNCTION search_and_filter_classes(
+    p_limit INTEGER DEFAULT 50,
+    p_cursor_timestamp TIMESTAMPTZ DEFAULT NOW(),
+    p_search_text TEXT DEFAULT NULL,  -- Text search in title, choreographer name, location
+    p_style TEXT DEFAULT NULL,
+    p_borough TEXT DEFAULT NULL,
+    p_location_name TEXT DEFAULT NULL,
+    p_choreographer_id UUID DEFAULT NULL,
+    p_from_date TIMESTAMPTZ DEFAULT NOW(),
+    p_to_date TIMESTAMPTZ DEFAULT NULL,
+    p_sort_by TEXT DEFAULT 'timestamp', -- 'timestamp' | 'heat' | 'created' | 'relevance'
+    p_sort_direction TEXT DEFAULT 'ASC' -- 'ASC' | 'DESC'
+)
+RETURNS TABLE (
+    -- Core class fields
+    id UUID,
+    title TEXT,
+    description TEXT,
+    style TEXT,
+    skill_level TEXT,
+    location_name TEXT,
+    borough TEXT,
+    price NUMERIC,
+    booking_url TEXT,
+    class_timestamp TIMESTAMPTZ,
+    choreographer_note TEXT,
+    view_count INTEGER,
+    
+    -- Choreographer info (from active_classes view)
+    choreographer_id UUID,
+    choreographer_display_name TEXT,
+    choreographer_url_slug TEXT,
+    choreographer_subscription_status TEXT,
+    
+    -- Search relevance score (for text search)
+    search_rank REAL,
+    
+    -- The "Heat" calculation - watchlist count
+    watchlist_count BIGINT,
+    
+    -- Timestamps
+    created_at TIMESTAMPTZ,
+    updated_at TIMESTAMPTZ
+) AS $$
+DECLARE
+    v_order_clause TEXT;
+    v_query TEXT;
+    v_search_query TEXT := '';
+    v_using_params TEXT;
+    v_param_count INTEGER := 0;
+BEGIN
+    -- Input validation
+    IF p_limit <= 0 OR p_limit > 100 THEN
+        RAISE EXCEPTION 'Limit must be between 1 and 100, got: %', p_limit;
+    END IF;
+
+    IF p_sort_by NOT IN ('timestamp', 'heat', 'created', 'relevance') THEN
+        RAISE EXCEPTION 'Invalid sort_by value: %. Use: timestamp, heat, created, relevance', p_sort_by;
+    END IF;
+
+    IF p_sort_direction NOT IN ('ASC', 'DESC') THEN
+        RAISE EXCEPTION 'Invalid sort_direction value: %. Use: ASC, DESC', p_sort_direction;
+    END IF;
+
+    IF p_to_date IS NOT NULL AND p_from_date > p_to_date THEN
+        RAISE EXCEPTION 'from_date cannot be greater than to_date';
+    END IF;
+
+    -- Validate text search requirements
+    IF p_sort_by = 'relevance' AND (p_search_text IS NULL OR trim(p_search_text) = '') THEN
+        RAISE EXCEPTION 'search_text is required when sorting by relevance';
+    END IF;
+
+    -- Build text search components if search_text is provided
+    IF p_search_text IS NOT NULL AND trim(p_search_text) != '' THEN
+        v_search_query := '
+            -- Text search rank calculation
+            (
+                -- Title search (highest weight)
+                ts_rank_cd(to_tsvector(''english'', COALESCE(c.title, '''')), plainto_tsquery(''english'', $' || (v_param_count + 9) || ')) * 4.0 +
+                -- Choreographer name search (high weight)
+                ts_rank_cd(to_tsvector(''english'', COALESCE(c.choreographer_display_name, '''')), plainto_tsquery(''english'', $' || (v_param_count + 9) || ')) * 3.0 +
+                -- Location search (medium weight)
+                ts_rank_cd(to_tsvector(''english'', COALESCE(c.location_name, '''')), plainto_tsquery(''english'', $' || (v_param_count + 9) || ')) * 2.0 +
+                -- Description search (low weight)
+                ts_rank_cd(to_tsvector(''english'', COALESCE(c.description, '''')), plainto_tsquery(''english'', $' || (v_param_count + 9) || ')) * 1.0
+            ) as search_rank,';
+        v_param_count := v_param_count + 1;
+    ELSE
+        v_search_query := '0.0 as search_rank,';
+    END IF;
+
+    -- Build dynamic ORDER BY clause
+    v_order_clause := CASE 
+        WHEN p_sort_by = 'timestamp' THEN 'c.class_timestamp'
+        WHEN p_sort_by = 'heat' THEN 'COALESCE(COUNT(cw.class_id), 0)'
+        WHEN p_sort_by = 'created' THEN 'c.created_at'
+        WHEN p_sort_by = 'relevance' THEN 'search_rank'
+    END || ' ' || p_sort_direction;
+
+    -- Add secondary sort for consistent pagination
+    IF p_sort_by = 'relevance' THEN
+        v_order_clause := v_order_clause || ', c.class_timestamp ASC';
+    ELSIF p_sort_by != 'timestamp' THEN
+        v_order_clause := v_order_clause || ', c.class_timestamp ASC';
+    END IF;
+
+    -- Build the USING parameters string
+    v_using_params := 'p_from_date, p_to_date, p_sort_by, p_cursor_timestamp, p_style, p_borough, p_location_name, p_choreographer_id, p_limit';
+    IF p_search_text IS NOT NULL AND trim(p_search_text) != '' THEN
+        v_using_params := v_using_params || ', p_search_text';
+    END IF;
+
+    -- Execute the main query
+    v_query := format('
+        SELECT 
+            c.id,
+            c.title,
+            c.description,
+            c.style,
+            c.skill_level,
+            c.location_name,
+            c.borough,
+            c.price,
+            c.booking_url,
+            c.class_timestamp,
+            c.choreographer_note,
+            c.view_count,
+            c.choreographer_id,
+            c.choreographer_display_name,
+            c.choreographer_url_slug,
+            c.subscription_status as choreographer_subscription_status,
+            %s
+            COALESCE(COUNT(cw.class_id), 0) as watchlist_count,
+            c.created_at,
+            c.updated_at
+        FROM active_classes c
+        LEFT JOIN class_watchlists cw ON c.id = cw.class_id
+        WHERE 
+            -- Date range filtering
+            c.class_timestamp >= $1
+            AND ($2 IS NULL OR c.class_timestamp <= $2)
+            -- Cursor pagination (only for timestamp sorting)
+            AND ($3 != ''timestamp'' OR c.class_timestamp >= $4)
+            -- Optional filters
+            AND ($5 IS NULL OR c.style = $5)
+            AND ($6 IS NULL OR c.borough = $6)
+            AND ($7 IS NULL OR c.location_name ILIKE ''%%'' || $7 || ''%%'')
+            AND ($8 IS NULL OR c.choreographer_id = $8)
+            %s
+        GROUP BY 
+            c.id, c.title, c.description, c.style, c.skill_level,
+            c.location_name, c.borough, c.price, c.booking_url,
+            c.class_timestamp, c.choreographer_note, c.view_count,
+            c.choreographer_id, c.choreographer_display_name, 
+            c.choreographer_url_slug, c.subscription_status,
+            c.created_at, c.updated_at
+        %s
+        ORDER BY %s
+        LIMIT $9'
+    , v_search_query
+    , CASE WHEN p_search_text IS NOT NULL AND trim(p_search_text) != '' THEN
+        '-- Text search filtering
+        AND (
+            to_tsvector(''english'', COALESCE(c.title, '''')) @@ plainto_tsquery(''english'', $10)
+            OR to_tsvector(''english'', COALESCE(c.choreographer_display_name, '''')) @@ plainto_tsquery(''english'', $10)
+            OR to_tsvector(''english'', COALESCE(c.location_name, '''')) @@ plainto_tsquery(''english'', $10)
+            OR to_tsvector(''english'', COALESCE(c.description, '''')) @@ plainto_tsquery(''english'', $10)
+        )'
+      ELSE ''
+      END
+    , CASE WHEN p_search_text IS NOT NULL AND trim(p_search_text) != '' THEN
+        ', search_rank'
+      ELSE ''
+      END
+    , v_order_clause);
+
+    -- Execute with the appropriate parameters
+    IF p_search_text IS NOT NULL AND trim(p_search_text) != '' THEN
+        RETURN QUERY EXECUTE v_query
+        USING p_from_date, p_to_date, p_sort_by, p_cursor_timestamp, 
+              p_style, p_borough, p_location_name, p_choreographer_id, p_limit, p_search_text;
+    ELSE
+        RETURN QUERY EXECUTE v_query
+        USING p_from_date, p_to_date, p_sort_by, p_cursor_timestamp, 
+              p_style, p_borough, p_location_name, p_choreographer_id, p_limit;
+    END IF;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- Function to get comprehensive choreographer analytics for dashboard
+CREATE OR REPLACE FUNCTION get_choreographer_analytics(
+    p_choreographer_id UUID,
+    p_requesting_user_id UUID
+)
+RETURNS JSONB AS $$
+DECLARE
+    v_choreographer RECORD;
+    v_follower_count INTEGER;
+    v_profile_views INTEGER;
+    v_total_classes INTEGER;
+    v_total_class_views INTEGER;
+    v_total_watchlists INTEGER;
+    v_class_details JSONB;
+    v_result JSONB;
+BEGIN
+    -- Authorization: Only choreographers can view their own analytics
+    IF p_requesting_user_id != p_choreographer_id THEN
+        RAISE EXCEPTION 'Unauthorized: Can only view your own analytics';
+    END IF;
+
+    -- Verify choreographer exists and is active
+    SELECT u.*, cp.view_count as profile_view_count INTO v_choreographer
+    FROM active_users u
+    JOIN active_choreographer_profiles cp ON u.id = cp.user_id
+    WHERE u.id = p_choreographer_id AND u.role = 'choreographer';
+
+    IF NOT FOUND THEN
+        RAISE EXCEPTION 'Choreographer not found or inactive';
+    END IF;
+
+    -- Get follower count
+    SELECT COUNT(*) INTO v_follower_count
+    FROM choreographer_follows cf
+    JOIN active_users u ON cf.follower_user_id = u.id
+    WHERE cf.followed_choreographer_id = p_choreographer_id;
+
+    -- Get profile views
+    v_profile_views := v_choreographer.profile_view_count;
+
+    -- Get class metrics and detailed breakdown
+    WITH class_metrics AS (
+        SELECT 
+            c.id,
+            c.title,
+            c.view_count,
+            c.class_timestamp,
+            c.style,
+            c.skill_level,
+            COALESCE(COUNT(cw.class_id), 0) as watchlist_count
+        FROM active_classes c
+        LEFT JOIN class_watchlists cw ON c.id = cw.class_id
+        WHERE c.choreographer_id = p_choreographer_id
+        GROUP BY c.id, c.title, c.view_count, c.class_timestamp, c.style, c.skill_level
+    )
+    SELECT 
+        COUNT(*) as total_classes,
+        COALESCE(SUM(view_count), 0) as total_class_views,
+        COALESCE(SUM(watchlist_count), 0) as total_watchlists,
+        JSONB_AGG(
+            JSONB_BUILD_OBJECT(
+                'class_id', id,
+                'title', title,
+                'views', view_count,
+                'watchlists', watchlist_count,
+                'class_timestamp', class_timestamp,
+                'style', style,
+                'skill_level', skill_level
+            ) ORDER BY class_timestamp DESC
+        ) as class_details
+    INTO v_total_classes, v_total_class_views, v_total_watchlists, v_class_details
+    FROM class_metrics;
+
+    -- Handle case where choreographer has no classes
+    v_total_classes := COALESCE(v_total_classes, 0);
+    v_total_class_views := COALESCE(v_total_class_views, 0);
+    v_total_watchlists := COALESCE(v_total_watchlists, 0);
+    v_class_details := COALESCE(v_class_details, '[]'::jsonb);
+
+    -- Build final result
+    v_result := JSONB_BUILD_OBJECT(
+        'follower_count', v_follower_count,
+        'profile_views', v_profile_views,
+        'total_classes', v_total_classes,
+        'total_class_views', v_total_class_views,
+        'total_watchlists', v_total_watchlists,
+        'classes', v_class_details,
+        'subscription_tier', v_choreographer.subscription_tier,
+        'generated_at', NOW()
+    );
+
+    RETURN v_result;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- --------------------------------------------------------------------------------
 -- AUTOMATION TRIGGERS AND VIEWS
 -- --------------------------------------------------------------------------------
 
@@ -532,3 +957,6 @@ COMMENT ON FUNCTION user_has_feature(UUID, TEXT) IS 'Returns boolean indicating 
 COMMENT ON FUNCTION update_subscription_status(UUID, TEXT, TEXT) IS 'Updates user subscription status and corresponding subscription record';
 COMMENT ON FUNCTION handle_new_user() IS 'Trigger function to sync new users from auth.users to public.users with subscription setup. ENFORCES invite-only choreographer signup for Phase 1 security.';
 COMMENT ON FUNCTION assign_choreographer_role(UUID, TEXT, UUID) IS 'Assigns choreographer role with invite validation and subscription setup';
+COMMENT ON FUNCTION get_classes_with_watchlist_count(INTEGER, TIMESTAMPTZ, TEXT, TEXT, UUID, TIMESTAMPTZ, TIMESTAMPTZ, TEXT, TEXT) IS 'Returns classes with real-time watchlist counts (Heat 🔥). Supports comprehensive filtering (style, borough, choreographer, date range) and flexible sorting (timestamp, heat, created) with ASC/DESC directions. Uses cursor pagination with class_timestamp for consistent results. Leverages active_classes view to respect subscription status and soft deletes. Optimized with LEFT JOIN to avoid N+1 queries while maintaining real-time accuracy. MVP design with planned materialized view migration path for Epic 7 performance optimization.';
+COMMENT ON FUNCTION search_and_filter_classes(INTEGER, TIMESTAMPTZ, TEXT, TEXT, TEXT, TEXT, UUID, TIMESTAMPTZ, TIMESTAMPTZ, TEXT, TEXT) IS 'Advanced class search with full-text capabilities and composite filtering. Supports text search across title, choreographer name, location, and description with weighted relevance scoring. Includes all filtering from get_classes_with_watchlist_count plus location ILIKE search. Supports relevance-based sorting when text search is provided. Uses PostgreSQL full-text search with GIN indexes for performance. Designed for MVP class discovery with comprehensive search functionality.';
+COMMENT ON FUNCTION get_choreographer_analytics(UUID, UUID) IS 'Returns comprehensive analytics for choreographer dashboard. Includes follower count, profile views, total classes, class views, watchlists, and detailed class breakdown. Enforces authorization - choreographers can only view their own analytics. Uses active_* views to respect subscription status. Designed for MVP with basic metrics, extensible for future subscription tiers with advanced analytics.';

@@ -29,26 +29,43 @@
 - [x] Plan database-level soft delete cascading triggers (user deletion cascades to classes, profiles, follows)
 - [x] Document core automation architecture and trigger dependencies
 
-### Subtask 2.3: Auth Integration & User Workflows (Updated for Subscription Model)
+### Subtask 2.3: Auth Integration & User Workflows ✅ COMPLETED
 - [x] Design multi-tier subscription model with feature-based access control
-- [x] Create subscription_tiers and subscriptions tables with proper relationships
+- [x] Create subscription_tiers and subscriptions tables with proper relationships  
 - [x] Design auth triggers to sync auth.users with public.users table automatically
+- [x] **SECURITY FIX**: Implement invite token validation in handle_new_user() trigger for choreographer signup
 - [x] Design proper user creation workflow that maintains referential integrity
 - [x] Design database functions for role validation and choreographer invite processing with subscription support
 - [x] Plan database functions for secure role assignment with subscription tier management
 - [x] Implement subscription status management functions (update_subscription_status, assign_choreographer_role)
+- [x] **VIEW STANDARDIZATION**: Rename public_classes to active_classes for consistency
 - [x] Plan cleanup functions for expired invite tokens
 - [x] Document complete user lifecycle and auth integration architecture with subscription flow
+- [x] **DOCUMENTATION UPDATE**: Update core-automation-architecture.md and auth-integration-design.md to match implementation
+- [x] **FILE CONSOLIDATION**: Consolidate all SQL into single master schema.sql file (removed 6+ duplicate files)
 
-##### Subtask 2.4: Business Logic Functions
-- [ ] Design function for efficient class "Heat" calculation (get_classes_with_watchlist_count)
-- [ ] Design choreographer analytics functions (follower counts, view counts, class engagement metrics)
-- [ ] Design class search and filtering functions (title, location search with style + borough + class_timestamp composite filtering)
+**OUTCOME**: Database is production-ready with secure invite-only choreographer signup, subscription management, and comprehensive automation. Ready for Subtask 2.4.
+
+##### Subtask 2.4: Business Logic Functions 🔄 READY TO IMPLEMENT
+
+**CURRENT STATE**: Database foundation is complete. Schema is production-ready with subscription system, secure authentication, and automation. All prerequisites satisfied.
+
+**IMPLEMENTATION REQUIREMENTS**: All business logic functions must respect subscription tiers using `user_has_feature()` and use `active_*` views for data access.
+
+- [x] Design function for efficient class "Heat" calculation (get_classes_with_watchlist_count) ✅
+- [x] Design choreographer analytics functions (follower counts, view counts, class engagement metrics) ✅  
+- [x] Design class search and filtering functions (title, location search with style + borough + class_timestamp composite filtering) ✅
 - [ ] Design "most popular choreographers" function (by follower count and engagement)
 - [ ] Design "trending classes" function (most watchlisted within time periods)
-- [ ] Add view_count fields to classes and choreographer_profiles tables with increment functions
+- [x] Add view_count fields to classes and choreographer_profiles tables with increment functions ✅
 - [ ] Plan composite indexes for multi-factor filtering (style + borough + class_timestamp, location_name + style, choreographer_id + class_timestamp)
 - [ ] Document all business logic function specifications and performance requirements
+
+**AVAILABLE FOUNDATION**: 
+- ✅ Subscription-aware views (`active_users`, `active_classes`, `active_choreographer_profiles`)
+- ✅ Feature access functions (`user_has_feature()`, `get_user_features()`)
+- ✅ Performance indexes and automation triggers
+- ✅ Complete documentation and architecture guides
 
 ##### Subtask 2.5: Audit Integration & Security
 - [ ] Design audit triggers for critical operations (user role changes, class creation/updates/deletion, profile changes)
@@ -471,8 +488,10 @@
 - [ ] Missing offline capability considerations
 - [ ] Performance optimization considerations: 
   - [ ] Evaluate materialized views for expensive queries (popular choreographers ranking, trending classes, class heat calculations)
-  - [ ] Implement caching strategy for "Heat" calculations if real-time performance becomes an issue
+  - [ ] **Heat calculation optimization**: Monitor performance of `get_classes_with_watchlist_count()` JOIN queries - if consistently >300ms, implement materialized view `class_heat_cache` with 5-10 minute refresh strategy
+  - [ ] Implement caching strategy for "Heat" calculations if real-time performance becomes an issue (trade-off: real-time accuracy vs query speed)
   - [ ] Consider query result caching for frequently accessed data (choreographer analytics, search results)
+  - [ ] **Migration path**: Plan materialized view implementation that maintains same API contract - functions can switch from real-time JOINs to cached lookups without breaking frontend
 - [ ] Advanced features to consider for post-MVP:
   - [ ] Class sessions/recurring classes functionality
   - [ ] Notification system for dancers
