@@ -24,18 +24,21 @@
 - [x] Document audit_logs table schema and integration points
 
 ##### Subtask 2.2: Core Automation & Views
-- [ ] Design comprehensive trigger functions for automatic updated_at timestamp management
-- [ ] Design database views (active_users, active_classes, active_choreographer_profiles, active_invites) that filter soft-deleted records
-- [ ] Plan database-level soft delete cascading triggers (user deletion cascades to classes, profiles, follows)
-- [ ] Document core automation architecture and trigger dependencies
+- [x] Design comprehensive trigger functions for automatic updated_at timestamp management
+- [x] Design database views (active_users, active_classes, active_choreographer_profiles, active_invites) that filter soft-deleted records
+- [x] Plan database-level soft delete cascading triggers (user deletion cascades to classes, profiles, follows)
+- [x] Document core automation architecture and trigger dependencies
 
-##### Subtask 2.3: Auth Integration & User Workflows
-- [ ] Design auth triggers to sync auth.users with public.users table automatically
-- [ ] Design proper user creation workflow that maintains referential integrity
-- [ ] Design database functions for role validation and choreographer invite processing
-- [ ] Plan database functions for secure role assignment with audit logging
-- [ ] Plan cleanup functions for expired invite tokens
-- [ ] Document complete user lifecycle and auth integration architecture
+### Subtask 2.3: Auth Integration & User Workflows (Updated for Subscription Model)
+- [x] Design multi-tier subscription model with feature-based access control
+- [x] Create subscription_tiers and subscriptions tables with proper relationships
+- [x] Design auth triggers to sync auth.users with public.users table automatically
+- [x] Design proper user creation workflow that maintains referential integrity
+- [x] Design database functions for role validation and choreographer invite processing with subscription support
+- [x] Plan database functions for secure role assignment with subscription tier management
+- [x] Implement subscription status management functions (update_subscription_status, assign_choreographer_role)
+- [x] Plan cleanup functions for expired invite tokens
+- [x] Document complete user lifecycle and auth integration architecture with subscription flow
 
 ##### Subtask 2.4: Business Logic Functions
 - [ ] Design function for efficient class "Heat" calculation (get_classes_with_watchlist_count)
