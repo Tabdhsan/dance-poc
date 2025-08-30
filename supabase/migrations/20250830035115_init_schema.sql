@@ -594,7 +594,7 @@ BEGIN
         cm.choreographer_id,
         cm.choreographer_display_name,
         cm.choreographer_url_slug,
-        cm.created_at,
+        cm.created_at
     FROM class_metrics cm
     ORDER BY cm.hotness_score DESC, cm.class_timestamp ASC;
     -- No LIMIT - let Supabase handle pagination via .range(from, to)
@@ -2215,4 +2215,4 @@ Security Considerations:
 -- 1. Copy contents of this file
 -- 2. Paste into Supabase SQL Editor
 -- 3. Execute and fix any errors iteratively
--- --------------------------------------------------------------------------------
+-- ------------------------------------------------------------------------

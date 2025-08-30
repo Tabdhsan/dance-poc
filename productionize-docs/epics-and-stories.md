@@ -91,14 +91,14 @@
 - [x] Verify all tables, functions, triggers, and policies are created successfully
 - [x] **Goal**: Working database with all core functionality
 
-##### Subtask 3.3: Basic Validation
-- [ ] Create test user via Supabase Auth
-- [ ] Create test class via SQL/API
-- [ ] Verify basic CRUD operations work (users, classes, watchlists, follows)
-- [ ] Confirm RLS policies are active and working
-- [ ] **Goal**: Database ready for application development
+<!-- ##### Subtask 3.3: Basic Validation
+<!-- - [ ] Create test user via Supabase Auth
+<!-- - [ ] Create test class via SQL/API --> -->
+<!-- - [ ] Verify basic CRUD operations work (users, classes, watchlists, follows) -->
+<!-- - [ ] Confirm RLS policies are active and working -->
+<!-- - [ ] **Goal**: Database ready for application development --> -->
 
-**OUTCOME**: Complete Muvv database deployed and functional in Supabase, ready for frontend development.
+<!-- **OUTCOME**: Complete Muvv database deployed and functional in Supabase, ready for frontend development. -->
 
 #### Story: AUTH-01 - Project Scaffolding & Tech Stack Setup
 
@@ -109,12 +109,9 @@
 - [ ] A new Vite + React (TypeScript) project is created with strict TypeScript configuration
 - [ ] A new Supabase project is created on the cloud platform with proper environment separation
 - [ ] All core dependencies are installed with specific versions: supabase-js@^2.39.0, @tanstack/react-router@^1.45.0, @tanstack/react-query@^5.45.0, tailwindcss@^3.4.0, shadcn-ui@latest, lucide-react@^0.400.0, react-hook-form@^7.52.0, dayjs@^1.11.0, sonner@^1.5.0
-- [ ] Add additional dependencies: zod for validation, react-dropzone for file uploads, @supabase/storage-js for file management
+- [ ] Add additional dependencies: zod for validation
 - [ ] Tailwind CSS is configured with custom design tokens and shadcn-ui is initialized
 - [ ] A basic TanStack Router instance is created with proper error boundaries and loading states
-- [ ] Environment variables are properly configured for development, staging, and production
-- [ ] Sentry is configured with proper error boundaries and performance monitoring
-- [ ] ESLint, Prettier, and pre-commit hooks are configured for code quality
 
 #### Story: AUTH-02 - Authentication Infrastructure & Error Handling
 
@@ -481,6 +478,9 @@
   - [ ] Advanced recommendation algorithms
   - [ ] Geographic analytics and location-based features
 - [ ] Discuss ENUMS with hiearachies and update 02-business-functions.sql accordinlgy for styles
+- [ ] Sentry is configured with proper error boundaries and performance monitoring
+- [ ] Environment variables are properly configured for development, staging, and production
+
 
 ### Epic 8: MVP Monitoring & Analytics
 
