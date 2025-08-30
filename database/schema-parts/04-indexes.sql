@@ -51,6 +51,10 @@ CREATE INDEX idx_audit_logs_table_record ON audit_logs(table_name, record_id);
 CREATE INDEX idx_audit_logs_created_at ON audit_logs(created_at);
 CREATE INDEX idx_audit_logs_user ON audit_logs(user_id) WHERE user_id IS NOT NULL;
 
+-- Indexes for normalized feature system
+CREATE INDEX idx_tier_features_feature_id ON tier_features(feature_id);
+CREATE INDEX idx_tier_features_tier ON tier_features(tier_role, tier_name);
+
 -- --------------------------------------------------------------------------------
 -- BUSINESS LOGIC INDEXES: Documentation & Function Mapping (Subtask 2.4)
 -- These composite indexes are critical for performance of business logic functions:

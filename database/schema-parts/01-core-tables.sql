@@ -31,7 +31,6 @@ CREATE TABLE subscription_tiers (
     description TEXT,
     price_cents INTEGER NOT NULL CHECK (price_cents >= 0),
     billing_interval TEXT DEFAULT 'monthly' CHECK (billing_interval IN ('monthly', 'yearly')),
-    features JSONB NOT NULL DEFAULT '{}' CHECK (jsonb_typeof(features) = 'object'),
     is_active BOOLEAN NOT NULL DEFAULT true,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -146,4 +145,25 @@ CREATE TABLE audit_logs (
     user_id UUID REFERENCES users(id) ON DELETE SET NULL,
     operation_context JSONB DEFAULT '{}',
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- Features table - Master list of all available permissions
+CREATE TABLE features (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    name TEXT NOT NULL UNIQUE, -- e.g., 'watchlist', 'create_class', 'view_analytics'
+    description TEXT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- Tier-features join table - Links subscription tiers to features
+CREATE TABLE tier_features (
+    tier_role TEXT NOT NULL,
+    tier_name TEXT NOT NULL,
+    feature_id UUID NOT NULL REFERENCES features(id) ON DELETE CASCADE,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    -- Composite primary key ensures a feature can only be added to a tier once
+    PRIMARY KEY (tier_role, tier_name, feature_id),
+    -- Foreign key to the subscription_tiers table
+    FOREIGN KEY (tier_role, tier_name) REFERENCES subscription_tiers(role, tier_name) ON DELETE CASCADE
+    FOREIGN KEY (feature_id) REFERENCES features(id) ON DELETE CASCADE
 );
