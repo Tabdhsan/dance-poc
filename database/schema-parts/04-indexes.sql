@@ -6,7 +6,7 @@
 -- Users table indexes
 CREATE INDEX idx_users_role ON users(role) WHERE deleted_at IS NULL;
 CREATE INDEX idx_users_email ON users(email) WHERE deleted_at IS NULL;
-CREATE INDEX idx_users_subscription_status_tier ON users(subscription_status, subscription_tier) WHERE deleted_at IS NULL;
+CREATE INDEX idx_users_subscription_status_role_tier ON users(subscription_status, role, tier_name) WHERE deleted_at IS NULL;
 
 -- Subscription indexes
 CREATE INDEX idx_subscription_tiers_role ON subscription_tiers(role) WHERE is_active = true;

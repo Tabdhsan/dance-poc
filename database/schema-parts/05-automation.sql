@@ -26,7 +26,7 @@ SELECT u.*, get_user_features(u.id) as features
 FROM users u WHERE u.deleted_at IS NULL;
 
 CREATE VIEW active_choreographer_profiles AS
-SELECT cp.*, u.subscription_tier, u.subscription_status
+SELECT cp.*, CONCAT(u.role, '_', u.tier_name) as subscription_tier, u.subscription_status
 FROM choreographer_profiles cp
 JOIN users u ON cp.user_id = u.id
 WHERE cp.deleted_at IS NULL AND u.deleted_at IS NULL AND u.role = 'choreographer' AND u.subscription_status = 'active';

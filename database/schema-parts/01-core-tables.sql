@@ -15,7 +15,7 @@ CREATE TABLE users (
     email_verified BOOLEAN NOT NULL DEFAULT false,
     last_login_at TIMESTAMPTZ,
     -- Subscription management fields
-    subscription_tier TEXT NOT NULL DEFAULT 'dancer_free',
+    tier_name TEXT NOT NULL DEFAULT 'free',
     subscription_status TEXT NOT NULL DEFAULT 'active' CHECK (subscription_status IN ('active', 'past_due', 'cancelled', 'incomplete')),
     current_subscription_id UUID,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -164,6 +164,6 @@ CREATE TABLE tier_features (
     -- Composite primary key ensures a feature can only be added to a tier once
     PRIMARY KEY (tier_role, tier_name, feature_id),
     -- Foreign key to the subscription_tiers table
-    FOREIGN KEY (tier_role, tier_name) REFERENCES subscription_tiers(role, tier_name) ON DELETE CASCADE
+    FOREIGN KEY (tier_role, tier_name) REFERENCES subscription_tiers(role, tier_name) ON DELETE CASCADE,
     FOREIGN KEY (feature_id) REFERENCES features(id) ON DELETE CASCADE
 );

@@ -13,6 +13,8 @@ ALTER TABLE invites ENABLE ROW LEVEL SECURITY;
 ALTER TABLE subscription_tiers ENABLE ROW LEVEL SECURITY;
 ALTER TABLE subscriptions ENABLE ROW LEVEL SECURITY;
 ALTER TABLE audit.audit_logs ENABLE ROW LEVEL SECURITY;
+ALTER TABLE features ENABLE ROW LEVEL SECURITY;
+ALTER TABLE tier_features ENABLE ROW LEVEL SECURITY;
 
 -- Helper function to get current user ID from JWT
 CREATE OR REPLACE FUNCTION get_current_user_id()
@@ -127,24 +129,30 @@ CREATE POLICY "classes_select_policy" ON classes
     is_admin()
   );
 
--- Only class owner (choreographer) can update their classes
-CREATE POLICY "classes_update_policy" ON classes
-  FOR UPDATE
-  USING (choreographer_id = get_current_user_id() OR is_admin())
-  WITH CHECK (choreographer_id = get_current_user_id() OR is_admin());
-
--- Only choreographers can create classes
-CREATE POLICY "classes_insert_policy" ON classes
-  FOR INSERT
+-- Comprehensive class management policy for choreographers
+CREATE POLICY "classes_management_policy" ON classes
+  FOR ALL
+  USING (
+    -- For SELECT: Public read access for active classes, or owner/admin access
+    (
+      (deleted_at IS NULL AND EXISTS (
+        SELECT 1 FROM users u 
+        WHERE u.id = choreographer_id 
+          AND u.deleted_at IS NULL 
+          AND u.role = 'choreographer'
+      )) OR
+      choreographer_id = get_current_user_id() OR
+      is_admin()
+    )
+  )
   WITH CHECK (
-    (choreographer_id = get_current_user_id() AND is_choreographer()) OR
-    is_admin()
+    -- For INSERT/UPDATE/DELETE: Owner with class_management feature or admin
+    (
+      choreographer_id = get_current_user_id() AND
+      is_choreographer() AND
+      user_has_feature(get_current_user_id(), 'class_management')
+    ) OR is_admin()
   );
-
--- Only class owner or admin can delete
-CREATE POLICY "classes_delete_policy" ON classes
-  FOR DELETE
-  USING (choreographer_id = get_current_user_id() OR is_admin());
 
 -- --------------------------------------------------------------------------------
 -- CLASS WATCHLISTS POLICIES
@@ -160,6 +168,7 @@ CREATE POLICY "watchlists_insert_policy" ON class_watchlists
   FOR INSERT
   WITH CHECK (
     user_id = get_current_user_id() AND
+    user_has_feature(get_current_user_id(), 'watchlist') AND
     EXISTS (
       SELECT 1 FROM classes c
       JOIN users u ON c.choreographer_id = u.id
@@ -195,6 +204,7 @@ CREATE POLICY "follows_insert_policy" ON choreographer_follows
   FOR INSERT
   WITH CHECK (
     follower_user_id = get_current_user_id() AND
+    user_has_feature(get_current_user_id(), 'follow') AND
     EXISTS (
       SELECT 1 FROM users u
       WHERE u.id = followed_choreographer_id
@@ -319,6 +329,30 @@ CREATE POLICY "audit_logs_delete_policy" ON audit.audit_logs
   USING (is_admin()); -- Only admins for maintenance
 
 -- --------------------------------------------------------------------------------
+-- FEATURES AND TIER_FEATURES TABLE POLICIES  
+-- --------------------------------------------------------------------------------
+
+-- Features table policies (read-only for most users)
+CREATE POLICY "features_select_policy" ON features
+  FOR SELECT
+  USING (true); -- Features are publicly readable
+
+CREATE POLICY "features_admin_policy" ON features
+  FOR ALL
+  USING (is_admin())
+  WITH CHECK (is_admin());
+
+-- Tier features policies (read-only for most users) 
+CREATE POLICY "tier_features_select_policy" ON tier_features
+  FOR SELECT
+  USING (true); -- Tier features are publicly readable
+
+CREATE POLICY "tier_features_admin_policy" ON tier_features
+  FOR ALL
+  USING (is_admin())
+  WITH CHECK (is_admin());
+
+-- --------------------------------------------------------------------------------
 -- GRANT PERMISSIONS TO ROLES
 -- --------------------------------------------------------------------------------
 
@@ -332,6 +366,8 @@ GRANT SELECT ON invites TO authenticated; -- Read-only for validation
 GRANT SELECT ON subscription_tiers TO authenticated; -- Read-only
 GRANT SELECT ON subscriptions TO authenticated; -- Read-only for users
 GRANT SELECT ON audit.audit_logs TO authenticated; -- Read-only
+GRANT SELECT ON features TO authenticated; -- Read-only
+GRANT SELECT ON tier_features TO authenticated; -- Read-only
 
 -- Grant broader permissions to service role (for admin functions)
 GRANT ALL ON ALL TABLES IN SCHEMA public TO service_role;

@@ -7,55 +7,60 @@
 CREATE OR REPLACE FUNCTION get_user_features(p_user_id UUID)
 RETURNS JSONB AS $$
 DECLARE
-    v_user RECORD;
-    v_tier_features JSONB;
+    v_features JSONB;
 BEGIN
-    SELECT u.subscription_tier, u.subscription_status, u.role INTO v_user
-    FROM users u 
-    WHERE u.id = p_user_id AND u.deleted_at IS NULL;
-    
-    IF NOT FOUND THEN
-        RETURN '{}'::jsonb;
-    END IF;
-    
-    -- Get features for user's current tier
-    SELECT st.features INTO v_tier_features
-    FROM subscription_tiers st
-    WHERE st.role = v_user.role 
-      AND st.tier_name = SPLIT_PART(v_user.subscription_tier, '_', 2)
-      AND st.is_active = true;
-    
-    IF NOT FOUND THEN
-        -- Fallback to free tier
-        SELECT st.features INTO v_tier_features
-        FROM subscription_tiers st
-        WHERE st.role = v_user.role 
-          AND st.tier_name = 'free'
-          AND st.is_active = true;
-    END IF;
-    
-    -- If subscription is not active, limit features
-    IF v_user.subscription_status != 'active' THEN
-        v_tier_features := jsonb_build_object(
-            'like', COALESCE(v_tier_features->>'like', 'false')::boolean,
-            'follow', COALESCE(v_tier_features->>'follow', 'false')::boolean,
-            'watchlist', COALESCE(v_tier_features->>'watchlist', 'false')::boolean,
-            'browse_classes', true
-        );
-    END IF;
-    
-    RETURN COALESCE(v_tier_features, '{}'::jsonb);
+    -- This query finds the user's active tier, joins to get all assigned feature names,
+    -- and aggregates them into a single JSONB object like {"feature_name": true, ...}.
+    SELECT COALESCE(
+        jsonb_object_agg(f.name, true),
+        '{}'::jsonb
+    )
+    INTO v_features
+    FROM users u
+    JOIN tier_features tf ON tf.tier_role = u.role AND tf.tier_name = u.tier_name
+    JOIN features f ON tf.feature_id = f.id
+    WHERE u.id = p_user_id
+      AND u.subscription_status = 'active'
+      AND u.deleted_at IS NULL;
+
+    RETURN v_features;
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
 -- Function to check if user has specific feature
-CREATE OR REPLACE FUNCTION user_has_feature(p_user_id UUID, p_feature TEXT)
+CREATE OR REPLACE FUNCTION user_has_feature(p_user_id UUID, p_feature_name TEXT)
 RETURNS BOOLEAN AS $$
 DECLARE
-    v_features JSONB;
+  v_user_role TEXT;
+  v_tier_name TEXT;
+  v_subscription_status TEXT;
 BEGIN
-    SELECT get_user_features(p_user_id) INTO v_features;
-    RETURN COALESCE((v_features->>p_feature)::boolean, false);
+  -- Get the user's current role, tier, and subscription status
+  SELECT
+    u.role,
+    u.tier_name,
+    u.subscription_status
+  INTO
+    v_user_role,
+    v_tier_name,
+    v_subscription_status
+  FROM users u
+  WHERE u.id = p_user_id AND u.deleted_at IS NULL;
+
+  -- If user not found or subscription is not active, they have no features
+  IF NOT FOUND OR v_subscription_status != 'active' THEN
+    RETURN false;
+  END IF;
+
+  -- Check if a link exists between the user's tier and the requested feature
+  RETURN EXISTS (
+    SELECT 1
+    FROM tier_features tf
+    JOIN features f ON tf.feature_id = f.id
+    WHERE tf.tier_role = v_user_role
+      AND tf.tier_name = v_tier_name
+      AND f.name = p_feature_name
+  );
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
@@ -100,7 +105,7 @@ CREATE OR REPLACE FUNCTION handle_new_user()
 RETURNS TRIGGER AS $$
 DECLARE
     v_role TEXT;
-    v_tier TEXT;
+    v_tier_name TEXT;
     v_invite_token TEXT;
     v_invite RECORD;
 BEGIN
@@ -130,14 +135,15 @@ BEGIN
         WHERE id = v_invite.id;
     END IF;
     
-    v_tier := CASE 
-        WHEN v_role = 'choreographer' THEN 'choreo_basic'
-        ELSE 'dancer_free'
+    -- Set tier name to match subscription_tiers table
+    v_tier_name := CASE 
+        WHEN v_role = 'choreographer' THEN 'basic'
+        ELSE 'free'
     END;
 
     INSERT INTO public.users (
         id, email, full_name, role, email_verified, last_login_at,
-        subscription_tier, subscription_status, created_at, updated_at
+        tier_name, subscription_status, created_at, updated_at
     )
     VALUES (
         NEW.id, NEW.email,
@@ -148,7 +154,7 @@ BEGIN
             WHEN NEW.raw_user_meta_data->>'provider' = 'google' THEN true
             ELSE false
         END,
-        NEW.last_sign_in_at, v_tier, 'active', NEW.created_at, NEW.updated_at
+        NEW.last_sign_in_at, v_tier_name, 'active', NEW.created_at, NEW.updated_at
     );
     
     -- Create choreographer profile if needed
@@ -186,7 +192,7 @@ BEGIN
     -- Update user role and subscription
     UPDATE users SET 
         role = 'choreographer',
-        subscription_tier = 'choreo_basic',
+        tier_name = 'basic',
         subscription_status = 'active',
         updated_at = NOW()
     WHERE id = p_user_id;
