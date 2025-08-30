@@ -165,6 +165,80 @@ CREATE TRIGGER choreographer_profiles_audit_trigger
 AFTER INSERT OR UPDATE OR DELETE ON choreographer_profiles
 FOR EACH ROW EXECUTE FUNCTION audit.trigger_choreographer_profiles();
 
+-- Social Actions Audit Triggers
+
+-- Trigger function for class_watchlists: track watchlist additions/removals
+CREATE OR REPLACE FUNCTION audit.trigger_class_watchlists() RETURNS trigger
+LANGUAGE plpgsql
+AS $$
+DECLARE
+  v_actor uuid := audit.get_current_actor();
+  v_payload jsonb;
+BEGIN
+  IF (TG_OP = 'INSERT') THEN
+    v_payload := jsonb_build_object(
+      'user_id', NEW.user_id,
+      'class_id', NEW.class_id,
+      'action', 'watchlist_add'
+    );
+    PERFORM audit.log_insert(v_actor, 'class_watchlists', NEW.class_id::text, 'WATCHLIST_ADD', v_payload);
+    RETURN NEW;
+
+  ELSIF (TG_OP = 'DELETE') THEN
+    v_payload := jsonb_build_object(
+      'user_id', OLD.user_id,
+      'class_id', OLD.class_id,
+      'action', 'watchlist_remove'
+    );
+    PERFORM audit.log_insert(v_actor, 'class_watchlists', OLD.class_id::text, 'WATCHLIST_REMOVE', v_payload);
+    RETURN OLD;
+  END IF;
+  RETURN NULL;
+END;
+$$;
+
+-- Attach trigger to class_watchlists
+DROP TRIGGER IF EXISTS class_watchlists_audit_trigger ON class_watchlists;
+CREATE TRIGGER class_watchlists_audit_trigger
+AFTER INSERT OR DELETE ON class_watchlists
+FOR EACH ROW EXECUTE FUNCTION audit.trigger_class_watchlists();
+
+-- Trigger function for choreographer_follows: track follow/unfollow actions
+CREATE OR REPLACE FUNCTION audit.trigger_choreographer_follows() RETURNS trigger
+LANGUAGE plpgsql
+AS $$
+DECLARE
+  v_actor uuid := audit.get_current_actor();
+  v_payload jsonb;
+BEGIN
+  IF (TG_OP = 'INSERT') THEN
+    v_payload := jsonb_build_object(
+      'follower_user_id', NEW.follower_user_id,
+      'followed_choreographer_id', NEW.followed_choreographer_id,
+      'action', 'follow'
+    );
+    PERFORM audit.log_insert(v_actor, 'choreographer_follows', NEW.followed_choreographer_id::text, 'FOLLOW', v_payload);
+    RETURN NEW;
+
+  ELSIF (TG_OP = 'DELETE') THEN
+    v_payload := jsonb_build_object(
+      'follower_user_id', OLD.follower_user_id,
+      'followed_choreographer_id', OLD.followed_choreographer_id,
+      'action', 'unfollow'
+    );
+    PERFORM audit.log_insert(v_actor, 'choreographer_follows', OLD.followed_choreographer_id::text, 'UNFOLLOW', v_payload);
+    RETURN OLD;
+  END IF;
+  RETURN NULL;
+END;
+$$;
+
+-- Attach trigger to choreographer_follows
+DROP TRIGGER IF EXISTS choreographer_follows_audit_trigger ON choreographer_follows;
+CREATE TRIGGER choreographer_follows_audit_trigger
+AFTER INSERT OR DELETE ON choreographer_follows
+FOR EACH ROW EXECUTE FUNCTION audit.trigger_choreographer_follows();
+
 -- Notes:
 -- - These triggers are intentionally thin: they build a compact JSON payload and call
 --   the `audit.log_insert` RPC. If you prefer queueing/async ingestion, replace the

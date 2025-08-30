@@ -55,17 +55,79 @@ $$ LANGUAGE plpgsql;
 
 CREATE TRIGGER trigger_users_soft_delete_cascade AFTER UPDATE ON users FOR EACH ROW EXECUTE FUNCTION cascade_user_soft_delete();
 
--- View count functions
+-- View count functions with audit logging
 CREATE OR REPLACE FUNCTION increment_class_view_count(class_uuid UUID)
 RETURNS VOID AS $$
+DECLARE
+    v_actor UUID;
+    v_old_count INTEGER;
+    v_new_count INTEGER;
 BEGIN
-    UPDATE classes SET view_count = view_count + 1 WHERE id = class_uuid AND deleted_at IS NULL;
+    -- Get current actor for audit trail
+    SELECT CASE WHEN current_setting('jwt.claims.user_id', true) IS NULL
+                THEN NULL
+                ELSE current_setting('jwt.claims.user_id', true)::uuid
+           END INTO v_actor;
+
+    -- Get current view count before increment
+    SELECT view_count INTO v_old_count FROM classes WHERE id = class_uuid AND deleted_at IS NULL;
+    
+    IF v_old_count IS NOT NULL THEN
+        -- Increment view count
+        UPDATE classes SET view_count = view_count + 1 WHERE id = class_uuid AND deleted_at IS NULL;
+        
+        v_new_count := v_old_count + 1;
+        
+        -- Log the view increment to audit trail
+        PERFORM audit.log_insert(
+            v_actor,
+            'classes',
+            class_uuid::text,
+            'VIEW_INCREMENT',
+            jsonb_build_object(
+                'old_count', v_old_count,
+                'new_count', v_new_count,
+                'increment', 1
+            )
+        );
+    END IF;
 END;
-$$ LANGUAGE plpgsql;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
 
 CREATE OR REPLACE FUNCTION increment_profile_view_count(profile_user_id UUID)
 RETURNS VOID AS $$
+DECLARE
+    v_actor UUID;
+    v_old_count INTEGER;
+    v_new_count INTEGER;
 BEGIN
-    UPDATE choreographer_profiles SET view_count = view_count + 1 WHERE user_id = profile_user_id AND deleted_at IS NULL;
+    -- Get current actor for audit trail
+    SELECT CASE WHEN current_setting('jwt.claims.user_id', true) IS NULL
+                THEN NULL
+                ELSE current_setting('jwt.claims.user_id', true)::uuid
+           END INTO v_actor;
+
+    -- Get current view count before increment
+    SELECT view_count INTO v_old_count FROM choreographer_profiles WHERE user_id = profile_user_id AND deleted_at IS NULL;
+    
+    IF v_old_count IS NOT NULL THEN
+        -- Increment view count
+        UPDATE choreographer_profiles SET view_count = view_count + 1 WHERE user_id = profile_user_id AND deleted_at IS NULL;
+        
+        v_new_count := v_old_count + 1;
+        
+        -- Log the view increment to audit trail
+        PERFORM audit.log_insert(
+            v_actor,
+            'choreographer_profiles',
+            profile_user_id::text,
+            'VIEW_INCREMENT',
+            jsonb_build_object(
+                'old_count', v_old_count,
+                'new_count', v_new_count,
+                'increment', 1
+            )
+        );
+    END IF;
 END;
-$$ LANGUAGE plpgsql;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
