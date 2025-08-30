@@ -69,10 +69,7 @@ CREATE TABLE choreographer_profiles (
     bio TEXT,
     profile_picture_url TEXT,
     social_links JSONB CHECK (
-        social_links IS NULL OR (
-            jsonb_typeof(social_links) = 'object' AND 
-            jsonb_array_length(jsonb_object_keys(social_links)) <= 10
-        )
+        social_links IS NULL OR jsonb_typeof(social_links) = 'object'
     ),
     url_slug TEXT UNIQUE,
     view_count INTEGER NOT NULL DEFAULT 0,

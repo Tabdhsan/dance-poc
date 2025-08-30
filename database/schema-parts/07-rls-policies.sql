@@ -3,7 +3,7 @@
 -- This file implements RLS policies for all tables with proper access control
 -- --------------------------------------------------------------------------------
 
--- Enable RLS on all tables
+-- Enable RLS on all tables (must come before creating policies)
 ALTER TABLE users ENABLE ROW LEVEL SECURITY;
 ALTER TABLE choreographer_profiles ENABLE ROW LEVEL SECURITY;
 ALTER TABLE classes ENABLE ROW LEVEL SECURITY;

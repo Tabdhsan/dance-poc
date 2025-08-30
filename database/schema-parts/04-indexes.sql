@@ -44,7 +44,7 @@ CREATE INDEX idx_follows_followed ON choreographer_follows(followed_choreographe
 
 -- Invites table indexes
 CREATE INDEX idx_invites_token ON invites(token) WHERE deleted_at IS NULL;
-CREATE INDEX idx_invites_active ON invites(id) WHERE deleted_at IS NULL AND expires_at > NOW() AND is_used = false;
+CREATE INDEX idx_invites_active ON invites(id) WHERE deleted_at IS NULL AND is_used = false;
 
 -- Audit logs table indexes
 CREATE INDEX idx_audit_logs_table_record ON audit_logs(table_name, record_id);

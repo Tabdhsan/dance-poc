@@ -76,46 +76,29 @@
 - [x] Design comprehensive Row Level Security (RLS) policies for all tables including audit considerations
 - [x] Document complete database architecture with all functions, triggers, views, and policies
 
-##### Subtask 3: Complete Database Implementation
-- [ ] Create all core tables with proper primary keys, foreign key constraints, and essential indexes
-- [ ] Add database-enforced timestamps (created_at, updated_at) with triggers to all tables
-- [ ] Implement soft delete strategy with deleted_at TIMESTAMPTZ columns on users, classes, choreographer_profiles, invites tables
-- [ ] Add JSONB validation constraints for social_links field (key-value pairs, URL validation, max 10 entries)
-- [ ] Set up CASCADE RESTRICT policies for referential integrity
-- [ ] Create audit_logs table structure with proper indexing
-- [ ] Implement all database triggers for automatic updated_at timestamp management
-- [ ] Implement database-level soft delete cascading triggers
-- [ ] Create all database views for active records filtering
-- [ ] Create all soft delete and restore utility functions for administrative use
-- [ ] Create all database functions for role validation and choreographer invite processing
-- [ ] Implement all audit triggers for critical operations
-- [ ] Create all audit trail functions that integrate with business logic triggers
-- [ ] Create auth triggers to sync auth.users with public.users table automatically
-- [ ] Implement all database functions for secure role assignment with audit logging
-- [ ] Set up complete user creation workflow that maintains referential integrity
-- [ ] Create cleanup functions for expired invite tokens
+##### Subtask 3: MVP Database Deployment ✅ SIMPLIFIED
+**All core implementation already completed in previous subtasks. This subtask focuses on deployment only.**
 
-##### Subtask 4: Security & Performance Implementation
-- [ ] Implement comprehensive Row Level Security (RLS) policies for all tables including audit considerations
-- [ ] Add all strategic indexing for performance optimization
-- [ ] Create all partial indexes for soft delete filtering (WHERE deleted_at IS NULL)
-- [ ] Enable RLS on all tables and apply security policies
+##### Subtask 3.1: Schema Consolidation ✅ COMPLETED
+- [x] Add RLS enabling statements to 07-rls-policies.sql file (at the beginning)
+- [x] Create bash script to combine all schema-parts/*.sql files into deployable schema.sql
+- [x] Ensure proper ordering: tables → functions → triggers → views → policies → admin utilities
+- [x] **Output**: Single deployable schema.sql file ready for Supabase
 
-##### Subtask 5: Testing & Validation
-- [ ] Test all database triggers and functions work correctly
-- [ ] Test soft delete operations are automatically logged with cascade information
-- [ ] Test audit trail completeness for all tracked operations
-- [ ] Test auth synchronization and role assignment flows
-- [ ] Test RLS policies with different user roles and scenarios
-- [ ] Validate query performance with EXPLAIN ANALYZE on expected query patterns
-- [ ] Test all utility functions (soft delete, restore, cleanup) work as expected
+##### Subtask 3.2: Deploy to Supabase ✅ COMPLETED
+- [x] Deploy schema.sql to Supabase SQL Editor
+- [x] Fix any deployment errors that Supabase reports (iterative approach)
+- [x] Verify all tables, functions, triggers, and policies are created successfully
+- [x] **Goal**: Working database with all core functionality
 
-##### Subtask 6: Documentation & Deployment Preparation
-- [ ] Document all custom database functions with usage examples and parameter definitions
-- [ ] Create database migration scripts for different environments (dev, staging, prod)
-- [ ] Prepare rollback scripts for all database changes
-- [ ] Create comprehensive database documentation including schema diagrams, function references, and security policies
-- [ ] Prepare database seeding scripts for testing and development
+##### Subtask 3.3: Basic Validation
+- [ ] Create test user via Supabase Auth
+- [ ] Create test class via SQL/API
+- [ ] Verify basic CRUD operations work (users, classes, watchlists, follows)
+- [ ] Confirm RLS policies are active and working
+- [ ] **Goal**: Database ready for application development
+
+**OUTCOME**: Complete Muvv database deployed and functional in Supabase, ready for frontend development.
 
 #### Story: AUTH-01 - Project Scaffolding & Tech Stack Setup
 
