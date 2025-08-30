@@ -480,6 +480,7 @@
   - [ ] Notification system for dancers
   - [ ] Advanced recommendation algorithms
   - [ ] Geographic analytics and location-based features
+- [ ] Discuss ENUMS with hiearachies and update 02-business-functions.sql accordinlgy for styles
 
 ### Epic 8: MVP Monitoring & Analytics
 
