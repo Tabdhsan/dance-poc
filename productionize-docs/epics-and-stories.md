@@ -55,11 +55,11 @@
 - [x] Design function for efficient class "Heat" calculation (get_classes_with_watchlist_count) ✅
 - [x] Design choreographer analytics functions (follower counts, view counts, class engagement metrics) ✅  
 - [x] Design class search and filtering functions (title, location search with style + borough + class_timestamp composite filtering) ✅
-- [ ] Design "most popular choreographers" function (by follower count and engagement)
-- [ ] Design "trending classes" function (most watchlisted within time periods)
+- [x] Design "most popular choreographers" function (by follower count and engagement) ✅
+- [x] Design "trending classes" function (most watchlisted within time periods) ✅
 - [x] Add view_count fields to classes and choreographer_profiles tables with increment functions ✅
-- [ ] Plan composite indexes for multi-factor filtering (style + borough + class_timestamp, location_name + style, choreographer_id + class_timestamp)
-- [ ] Document all business logic function specifications and performance requirements
+- [x] Plan composite indexes for multi-factor filtering (style + borough + class_timestamp, location_name + style, choreographer_id + class_timestamp)
+- [x] Document all business logic function specifications and performance requirements
 
 **AVAILABLE FOUNDATION**: 
 - ✅ Subscription-aware views (`active_users`, `active_classes`, `active_choreographer_profiles`)
