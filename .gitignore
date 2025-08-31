@@ -25,3 +25,6 @@ dist-ssr
 
 *supabase/.temp*
 *database/supabase/.temp*
+
+*.env
+!*.env.example

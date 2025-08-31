@@ -2,7 +2,7 @@
 import { useCallback } from 'react';
 import { useUser } from '@/contexts/UserContext';
 import { usePreferences } from '@/contexts/PreferencesContext';
-import type { UserRole, DanceClass } from '@/types';
+import type { UserRole, DanceClass } from '@/types/ui.types';  
 
 /**
  * Hook for managing user state and role switching

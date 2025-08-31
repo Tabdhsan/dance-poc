@@ -10,6 +10,7 @@ import { MyClasses } from '@/pages/MyClasses';
 import { Settings } from '@/pages/Settings';
 import { Profile } from '@/pages/Profile';
 import { useUserState } from '@/hooks/useUserState';
+import { LoginForm } from '@/pages/Login';
 
 // Loading component
 const LoadingScreen: React.FC = () => (
@@ -38,6 +39,7 @@ const AppRoutes: React.FC = () => {
         <Route path="/my-classes" element={<MyClasses />} />
         <Route path="/profile" element={<Profile />} />
         <Route path="/settings" element={<Settings />} />
+        <Route path="/login" element={<LoginForm />} />
         {/* Catch all route - redirect to dashboard */}
         <Route path="*" element={<Navigate to="/dashboard" replace />} />
       </Routes>
