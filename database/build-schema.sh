@@ -50,6 +50,10 @@ echo "-- AUDIT SYSTEM" >> "$OUTPUT_FILE"
 cat "$PARTS_DIR/05-audit.sql" >> "$OUTPUT_FILE"
 echo -e "\n\n" >> "$OUTPUT_FILE"
 
+echo "-- SEED DATA" >> "$OUTPUT_FILE"
+cat "$PARTS_DIR/06-seed-data.sql" >> "$OUTPUT_FILE"
+echo -e "\n\n" >> "$OUTPUT_FILE"
+
 echo "-- RLS POLICIES" >> "$OUTPUT_FILE"
 cat "$PARTS_DIR/07-rls-policies.sql" >> "$OUTPUT_FILE"
 echo -e "\n\n" >> "$OUTPUT_FILE"

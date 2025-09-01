@@ -1,10 +1,9 @@
 -- --------------------------------------------------------------------------------
--- Muvv.nyc - Complete Database Schema for Supabase Deployment
--- Auto-generated from schema-parts/ - DO NOT EDIT DIRECTLY
--- Generated: $(date)
+-- Project Schema - Auto-generated from schema-parts
+-- Generated: Sun Aug 31 20:59:38 EDT 2025
 -- --------------------------------------------------------------------------------
 
--- CORE TABLES
+-- Including: 01-core-tables.sql
 -- --------------------------------------------------------------------------------
 -- CORE TABLES - Table Definitions Only
 -- Extracted from master schema.sql for focused editing
@@ -37,7 +36,7 @@ CREATE TABLE subscription_tiers (
     display_name TEXT NOT NULL,
     description TEXT,
     price_cents INTEGER NOT NULL CHECK (price_cents >= 0),
-    billing_interval TEXT DEFAULT 'monthly' CHECK (billing_interval IN ('monthly', 'yearly')),
+    billing_interval TEXT DEFAULT 'monthly' CHECK (billing_interval IN ('monthly', 'yearly', 'lifetime')),
     is_active BOOLEAN NOT NULL DEFAULT true,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -177,7 +176,7 @@ CREATE TABLE tier_features (
 
 
 
--- BUSINESS FUNCTIONS
+-- Including: 02-business-functions.sql
 -- --------------------------------------------------------------------------------
 -- BUSINESS LOGIC FUNCTIONS - Core Discovery & Analytics Functions
 -- Extracted from master schema.sql for focused editing
@@ -603,7 +602,7 @@ $$ LANGUAGE plpgsql SECURITY DEFINER;
 
 
 
--- AUTH FUNCTIONS
+-- Including: 03-auth-functions.sql
 -- --------------------------------------------------------------------------------
 -- SUBSCRIPTION & AUTH FUNCTIONS - User Management & Authentication
 -- Extracted from master schema.sql for focused editing
@@ -825,7 +824,7 @@ CREATE TRIGGER trigger_handle_new_user
 
 
 
--- INDEXES
+-- Including: 04-indexes.sql
 -- --------------------------------------------------------------------------------
 -- INDEXES & PERFORMANCE - All Database Indexes for Optimization
 -- Extracted from master schema.sql for focused editing
@@ -906,144 +905,7 @@ CREATE INDEX idx_tier_features_tier ON tier_features(tier_role, tier_name);
 
 
 
--- AUTOMATION & TRIGGERS
--- --------------------------------------------------------------------------------
--- VIEWS, TRIGGERS & AUTOMATION - Database Automation & Active Record Views
--- Extracted from master schema.sql for focused editing
--- --------------------------------------------------------------------------------
-
--- Universal function to update updated_at timestamp automatically
-CREATE OR REPLACE FUNCTION update_updated_at_column()
-RETURNS TRIGGER AS $$
-BEGIN
-    NEW.updated_at = NOW();
-    RETURN NEW;
-END;
-$$ LANGUAGE plpgsql;
-
--- Apply updated_at triggers to all tables
-CREATE TRIGGER trigger_users_updated_at BEFORE UPDATE ON users FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
-CREATE TRIGGER trigger_choreographer_profiles_updated_at BEFORE UPDATE ON choreographer_profiles FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
-CREATE TRIGGER trigger_classes_updated_at BEFORE UPDATE ON classes FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
-CREATE TRIGGER trigger_invites_updated_at BEFORE UPDATE ON invites FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
-CREATE TRIGGER trigger_subscription_tiers_updated_at BEFORE UPDATE ON subscription_tiers FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
-CREATE TRIGGER trigger_subscriptions_updated_at BEFORE UPDATE ON subscriptions FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
-
--- Subscription-aware views
-CREATE VIEW active_users AS
-SELECT u.*, get_user_features(u.id) as features
-FROM users u WHERE u.deleted_at IS NULL;
-
-CREATE VIEW active_choreographer_profiles AS
-SELECT cp.*, CONCAT(u.role, '_', u.tier_name) as subscription_tier, u.subscription_status
-FROM choreographer_profiles cp
-JOIN users u ON cp.user_id = u.id
-WHERE cp.deleted_at IS NULL AND u.deleted_at IS NULL AND u.role = 'choreographer' AND u.subscription_status = 'active';
-
-CREATE VIEW active_classes AS
-SELECT c.*, cp.display_name as choreographer_display_name, cp.url_slug as choreographer_url_slug, u.subscription_status
-FROM classes c
-JOIN users u ON c.choreographer_id = u.id
-JOIN choreographer_profiles cp ON u.id = cp.user_id
-WHERE c.deleted_at IS NULL AND u.deleted_at IS NULL AND cp.deleted_at IS NULL AND u.role = 'choreographer' AND u.subscription_status = 'active';
-
--- Soft delete cascading function
-CREATE OR REPLACE FUNCTION cascade_user_soft_delete()
-RETURNS TRIGGER AS $$
-BEGIN
-    IF NEW.deleted_at IS NOT NULL AND OLD.deleted_at IS NULL THEN
-        UPDATE choreographer_profiles SET deleted_at = NEW.deleted_at WHERE user_id = NEW.id AND deleted_at IS NULL;
-        UPDATE classes SET deleted_at = NEW.deleted_at WHERE choreographer_id = NEW.id AND deleted_at IS NULL;
-        UPDATE subscriptions SET status = 'cancelled', cancelled_at = NEW.deleted_at WHERE user_id = NEW.id AND status != 'cancelled';
-        DELETE FROM choreographer_follows WHERE follower_user_id = NEW.id OR followed_choreographer_id = NEW.id;
-        DELETE FROM class_watchlists WHERE user_id = NEW.id;
-    END IF;
-    RETURN NEW;
-END;
-$$ LANGUAGE plpgsql;
-
-CREATE TRIGGER trigger_users_soft_delete_cascade AFTER UPDATE ON users FOR EACH ROW EXECUTE FUNCTION cascade_user_soft_delete();
-
--- View count functions with audit logging
-CREATE OR REPLACE FUNCTION increment_class_view_count(class_uuid UUID)
-RETURNS VOID AS $$
-DECLARE
-    v_actor UUID;
-    v_old_count INTEGER;
-    v_new_count INTEGER;
-BEGIN
-    -- Get current actor for audit trail
-    SELECT CASE WHEN current_setting('jwt.claims.user_id', true) IS NULL
-                THEN NULL
-                ELSE current_setting('jwt.claims.user_id', true)::uuid
-           END INTO v_actor;
-
-    -- Get current view count before increment
-    SELECT view_count INTO v_old_count FROM classes WHERE id = class_uuid AND deleted_at IS NULL;
-    
-    IF v_old_count IS NOT NULL THEN
-        -- Increment view count
-        UPDATE classes SET view_count = view_count + 1 WHERE id = class_uuid AND deleted_at IS NULL;
-        
-        v_new_count := v_old_count + 1;
-        
-        -- Log the view increment to audit trail
-        PERFORM audit.log_insert(
-            v_actor,
-            'classes',
-            class_uuid::text,
-            'VIEW_INCREMENT',
-            jsonb_build_object(
-                'old_count', v_old_count,
-                'new_count', v_new_count,
-                'increment', 1
-            )
-        );
-    END IF;
-END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
-
-CREATE OR REPLACE FUNCTION increment_profile_view_count(profile_user_id UUID)
-RETURNS VOID AS $$
-DECLARE
-    v_actor UUID;
-    v_old_count INTEGER;
-    v_new_count INTEGER;
-BEGIN
-    -- Get current actor for audit trail
-    SELECT CASE WHEN current_setting('jwt.claims.user_id', true) IS NULL
-                THEN NULL
-                ELSE current_setting('jwt.claims.user_id', true)::uuid
-           END INTO v_actor;
-
-    -- Get current view count before increment
-    SELECT view_count INTO v_old_count FROM choreographer_profiles WHERE user_id = profile_user_id AND deleted_at IS NULL;
-    
-    IF v_old_count IS NOT NULL THEN
-        -- Increment view count
-        UPDATE choreographer_profiles SET view_count = view_count + 1 WHERE user_id = profile_user_id AND deleted_at IS NULL;
-        
-        v_new_count := v_old_count + 1;
-        
-        -- Log the view increment to audit trail
-        PERFORM audit.log_insert(
-            v_actor,
-            'choreographer_profiles',
-            profile_user_id::text,
-            'VIEW_INCREMENT',
-            jsonb_build_object(
-                'old_count', v_old_count,
-                'new_count', v_new_count,
-                'increment', 1
-            )
-        );
-    END IF;
-END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
-
-
-
--- AUDIT SYSTEM
+-- Including: 05-audit.sql
 -- Audit schema: lightweight audit logs, insert RPC, and example triggers
 -- This file provides a minimal, pragmatic audit trail for critical operations.
 
@@ -1294,7 +1156,191 @@ FOR EACH ROW EXECUTE FUNCTION audit.trigger_choreographer_follows();
 
 
 
--- RLS POLICIES
+-- Including: 05-automation.sql
+-- --------------------------------------------------------------------------------
+-- VIEWS, TRIGGERS & AUTOMATION - Database Automation & Active Record Views
+-- Extracted from master schema.sql for focused editing
+-- --------------------------------------------------------------------------------
+
+-- Universal function to update updated_at timestamp automatically
+CREATE OR REPLACE FUNCTION update_updated_at_column()
+RETURNS TRIGGER AS $$
+BEGIN
+    NEW.updated_at = NOW();
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Apply updated_at triggers to all tables
+CREATE TRIGGER trigger_users_updated_at BEFORE UPDATE ON users FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+CREATE TRIGGER trigger_choreographer_profiles_updated_at BEFORE UPDATE ON choreographer_profiles FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+CREATE TRIGGER trigger_classes_updated_at BEFORE UPDATE ON classes FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+CREATE TRIGGER trigger_invites_updated_at BEFORE UPDATE ON invites FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+CREATE TRIGGER trigger_subscription_tiers_updated_at BEFORE UPDATE ON subscription_tiers FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+CREATE TRIGGER trigger_subscriptions_updated_at BEFORE UPDATE ON subscriptions FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+-- Subscription-aware views
+CREATE VIEW active_users AS
+SELECT u.*, get_user_features(u.id) as features
+FROM users u WHERE u.deleted_at IS NULL;
+
+CREATE VIEW active_choreographer_profiles AS
+SELECT cp.*, CONCAT(u.role, '_', u.tier_name) as subscription_tier, u.subscription_status
+FROM choreographer_profiles cp
+JOIN users u ON cp.user_id = u.id
+WHERE cp.deleted_at IS NULL AND u.deleted_at IS NULL AND u.role = 'choreographer' AND u.subscription_status = 'active';
+
+CREATE VIEW active_classes AS
+SELECT c.*, cp.display_name as choreographer_display_name, cp.url_slug as choreographer_url_slug, u.subscription_status
+FROM classes c
+JOIN users u ON c.choreographer_id = u.id
+JOIN choreographer_profiles cp ON u.id = cp.user_id
+WHERE c.deleted_at IS NULL AND u.deleted_at IS NULL AND cp.deleted_at IS NULL AND u.role = 'choreographer' AND u.subscription_status = 'active';
+
+-- Soft delete cascading function
+CREATE OR REPLACE FUNCTION cascade_user_soft_delete()
+RETURNS TRIGGER AS $$
+BEGIN
+    IF NEW.deleted_at IS NOT NULL AND OLD.deleted_at IS NULL THEN
+        UPDATE choreographer_profiles SET deleted_at = NEW.deleted_at WHERE user_id = NEW.id AND deleted_at IS NULL;
+        UPDATE classes SET deleted_at = NEW.deleted_at WHERE choreographer_id = NEW.id AND deleted_at IS NULL;
+        UPDATE subscriptions SET status = 'cancelled', cancelled_at = NEW.deleted_at WHERE user_id = NEW.id AND status != 'cancelled';
+        DELETE FROM choreographer_follows WHERE follower_user_id = NEW.id OR followed_choreographer_id = NEW.id;
+        DELETE FROM class_watchlists WHERE user_id = NEW.id;
+    END IF;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER trigger_users_soft_delete_cascade AFTER UPDATE ON users FOR EACH ROW EXECUTE FUNCTION cascade_user_soft_delete();
+
+-- View count functions with audit logging
+CREATE OR REPLACE FUNCTION increment_class_view_count(class_uuid UUID)
+RETURNS VOID AS $$
+DECLARE
+    v_actor UUID;
+    v_old_count INTEGER;
+    v_new_count INTEGER;
+BEGIN
+    -- Get current actor for audit trail
+    SELECT CASE WHEN current_setting('jwt.claims.user_id', true) IS NULL
+                THEN NULL
+                ELSE current_setting('jwt.claims.user_id', true)::uuid
+           END INTO v_actor;
+
+    -- Get current view count before increment
+    SELECT view_count INTO v_old_count FROM classes WHERE id = class_uuid AND deleted_at IS NULL;
+    
+    IF v_old_count IS NOT NULL THEN
+        -- Increment view count
+        UPDATE classes SET view_count = view_count + 1 WHERE id = class_uuid AND deleted_at IS NULL;
+        
+        v_new_count := v_old_count + 1;
+        
+        -- Log the view increment to audit trail
+        PERFORM audit.log_insert(
+            v_actor,
+            'classes',
+            class_uuid::text,
+            'VIEW_INCREMENT',
+            jsonb_build_object(
+                'old_count', v_old_count,
+                'new_count', v_new_count,
+                'increment', 1
+            )
+        );
+    END IF;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+CREATE OR REPLACE FUNCTION increment_profile_view_count(profile_user_id UUID)
+RETURNS VOID AS $$
+DECLARE
+    v_actor UUID;
+    v_old_count INTEGER;
+    v_new_count INTEGER;
+BEGIN
+    -- Get current actor for audit trail
+    SELECT CASE WHEN current_setting('jwt.claims.user_id', true) IS NULL
+                THEN NULL
+                ELSE current_setting('jwt.claims.user_id', true)::uuid
+           END INTO v_actor;
+
+    -- Get current view count before increment
+    SELECT view_count INTO v_old_count FROM choreographer_profiles WHERE user_id = profile_user_id AND deleted_at IS NULL;
+    
+    IF v_old_count IS NOT NULL THEN
+        -- Increment view count
+        UPDATE choreographer_profiles SET view_count = view_count + 1 WHERE user_id = profile_user_id AND deleted_at IS NULL;
+        
+        v_new_count := v_old_count + 1;
+        
+        -- Log the view increment to audit trail
+        PERFORM audit.log_insert(
+            v_actor,
+            'choreographer_profiles',
+            profile_user_id::text,
+            'VIEW_INCREMENT',
+            jsonb_build_object(
+                'old_count', v_old_count,
+                'new_count', v_new_count,
+                'increment', 1
+            )
+        );
+    END IF;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+
+
+-- Including: 06-seed-data.sql
+-- --------------------------------------------------------------------------------
+-- SEED DATA & CONFIGURATION - Initial Subscription Tiers & Reference Data
+-- Extracted from master schema.sql for focused editing
+-- --------------------------------------------------------------------------------
+
+-- Insert initial features (all available features in the system)
+INSERT INTO features (name, description) VALUES
+  -- ('browse_classes', 'Allows browsing and viewing class listings (always available)'),
+  ('watchlist', 'Allows a user to add a class to their watchlist'),
+  ('follow', 'Allows a user to follow a choreographer'),
+  ('class_management', 'Allows a choreographer to create, update, and delete class listings')
+  -- ('profile_management', 'Allows a choreographer to manage their public profile'),
+  -- ('analytics', 'Allows a choreographer to view basic analytics'),
+  -- ('advanced_analytics', 'Allows a choreographer to view detailed analytics and insights'),
+  -- ('priority_listing', 'Allows a choreographer to get priority placement in search results'),
+  -- ('unlimited_classes', 'Allows a choreographer to create unlimited class listings'),
+  -- ('custom_branding', 'Allows a choreographer to customize their profile with custom branding'),
+  -- ('email_marketing', 'Allows a choreographer to send email campaigns to followers'),
+  -- ('api_access', 'Allows a choreographer to access the API for integrations')
+ON CONFLICT (name) DO NOTHING;
+
+-- Dancer tiers
+-- INSERT INTO subscription_tiers (role, tier_name, display_name, description, price_cents, billing_interval, is_active) VALUES
+-- ('dancer', 'free', 'Free Dancer', 'Basic access to browse and like classes', 0, 'monthly', true),
+-- ('dancer', 'premium', 'Premium Dancer', 'Enhanced features for serious dancers', 999, 'monthly', true),
+-- ('dancer', 'premium_yearly', 'Premium Dancer (Yearly)', 'Enhanced features for serious dancers - yearly discount', 9999, 'yearly', true)
+-- ON CONFLICT (role, tier_name) DO NOTHING;
+
+-- Choreographer tiers
+INSERT INTO subscription_tiers (role, tier_name, display_name, description, price_cents, billing_interval, is_active) VALUES
+('choreographer', 'invited', 'Invited Choreographer', 'Paid Features without a subscription', 0, 'lifetime', true)
+-- ('choreographer', 'basic', 'Basic Choreographer', 'Essential tools for choreographers (free for invited users)', 0, 'monthly', true),
+-- ('choreographer', 'professional', 'Professional Choreographer', 'Advanced tools for professional choreographers', 2999, 'monthly', true),
+-- ('choreographer', 'professional_yearly', 'Professional Choreographer (Yearly)', 'Advanced tools for professional choreographers - yearly discount', 29999, 'yearly', true),
+-- ('choreographer', 'premium', 'Premium Choreographer', 'Premium features for established choreographers', 4999, 'monthly', true),
+-- ('choreographer', 'premium_yearly', 'Premium Choreographer (Yearly)', 'Premium features for established choreographers - yearly discount', 49999, 'yearly', true)
+ON CONFLICT (role, tier_name) DO NOTHING;
+
+-- Assign features to dancer tiers
+-- Free Dancer: Basic browsing and social features
+INSERT INTO tier_features (tier_role, tier_name, feature_id)
+SELECT 'choreographer', 'invited', f.id FROM features f 
+WHERE f.name IN ('watchlist', 'follow', 'class_management')
+ON CONFLICT (tier_role, tier_name, feature_id) DO NOTHING;
+
+
+-- Including: 07-rls-policies.sql
 -- --------------------------------------------------------------------------------
 -- ROW LEVEL SECURITY (RLS) POLICIES - Comprehensive Security Implementation
 -- This file implements RLS policies for all tables with proper access control
@@ -1712,7 +1758,7 @@ Testing Recommendations:
 
 
 
--- ADMIN UTILITIES
+-- Including: 08-admin-utilities.sql
 -- --------------------------------------------------------------------------------
 -- ADMINISTRATIVE UTILITY FUNCTIONS - Soft Delete, Restore & Management
 -- This file contains utility functions for administrative operations
@@ -2215,12 +2261,6 @@ Security Considerations:
 
 
 
-
 -- --------------------------------------------------------------------------------
--- DEPLOYMENT COMPLETE
--- Schema ready for Supabase deployment
--- Next steps:
--- 1. Copy contents of this file
--- 2. Paste into Supabase SQL Editor
--- 3. Execute and fix any errors iteratively
+-- END SCHEMA
 -- --------------------------------------------------------------------------------

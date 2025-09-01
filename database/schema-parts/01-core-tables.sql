@@ -30,7 +30,7 @@ CREATE TABLE subscription_tiers (
     display_name TEXT NOT NULL,
     description TEXT,
     price_cents INTEGER NOT NULL CHECK (price_cents >= 0),
-    billing_interval TEXT DEFAULT 'monthly' CHECK (billing_interval IN ('monthly', 'yearly')),
+    billing_interval TEXT DEFAULT 'monthly' CHECK (billing_interval IN ('monthly', 'yearly', 'lifetime')),
     is_active BOOLEAN NOT NULL DEFAULT true,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
